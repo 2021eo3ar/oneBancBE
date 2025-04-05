@@ -1,0 +1,24 @@
+Date,Transaction Description,Debit,Credit,Currency,CardName,Transaction,Location
+"12-03-2018","Amazon Cash Back Jan 18",213.00,0.00,INR,Rahul,Domestic,hissar
+"16-03-2018","SUBWAY",0.00,230.00,INR,Rahul,Domestic,gurgaon
+"18-03-2018","NIMITAYA HOTEL & RESOR",0.00,3415.00,INR,Rahul,Domestic,gurgaon
+"18-03-2018","BIRYANI PARADISE",0.00,335.00,INR,Rahul,Domestic,gurgaon
+"19-03-2018","AIRTEL PAYMENT",880.00,0.00,INR,Rahul,Domestic,mumbai
+"19-03-2018","AIRTEL PAYMENT",0.00,1297.00,INR,Rahul,Domestic,mumbai
+"19-03-2018","AMAZON SELLER SERVICES",41499.00,0.00,INR,Raj,Domestic,mumbai
+"19-03-2018","ICICI PRUDENTIAL LIFE",35935.00,0.00,INR,Raj,Domestic,mumbai
+"20-03-2018","CARNIVAL CINEMAS NEEMU",110.00,0.00,INR,Raj,Domestic,gurgaon
+"23-03-2018","BIRYANI PARADISE",219.00,0.00,INR,Raj,Domestic,gurgaon
+"25-03-2018","SRS CINEMAS",0.00,155.00,INR,Raj,Domestic,gurgaon
+"25-03-2018","SRS CINEMAS",0.00,1440.00,INR,Raj,Domestic,gurgaon
+"25-03-2018","NIMITAYA HOTEL & RESOR",3414.00,0.00,INR,Raj,Domestic,gurgaon
+"26-03-2018","KABI BESPOKE BOUTIQUE",0.00,270.00,INR,Raj,Domestic,gurgaon
+"27-03-2018","PAYTM",2941.00,0.00,INR,Raj,Domestic,noida
+"27-03-2018","AMAZON SELLER SERVICES",416.00,0.00,INR,Raj,Domestic,mumbai
+"28-03-2018","www.vodafone.in",500.00,0.00,INR,Raj,Domestic,mumbai
+"30-12-2017","SRILANKANUPGRADE",6.00,0.00,EUR,Raj,International,katunayake
+"14-01-2018","HEALTHGUARD LIMITED",0.00,15.00,USD,Raj,International,katunayake
+"19-01-2018","FOOT RUB",26.00,0.00,EUR,Raj,International,berlin
+"20-01-2018","California Games",107.00,0.00,USD,Raj,International,california
+"30-01-2018","NewYorkShop",210.00,0.00,USD,Raj,International,newyork
+"08-02-2018","EURO WINGS",15.00,0.00,EUR,Raj,International,dusseldor
