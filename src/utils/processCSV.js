@@ -2,195 +2,132 @@ import fs from "fs";
 import readline from "readline";
 import moment from "moment";
 
-// Bank-Specific Processors
-const bankProcessors = {
-  HDFC: {
-    isBank: (line) =>
-      line.includes("Domestic Transactions,") ||
-      line.includes("International Transaction,"),
-    processLine: (line, context) => {
-      const columns = parseCSVLine(line);
-      if (columns.length < 3 || !/^\d{2}-\d{2}-\d{4}/.test(columns[0]))
-        return null;
-
-      let [date, description, debit, credit] = columns;
-      debit = debit || "";
-      credit = credit || "";
-
-      return { Date: date, Description: description, Debit: debit, Credit: credit };
-    },
-  },
-  ICICI: {
-    isBank: (line) =>
-      line.includes("Transaction Description") &&
-      line.includes("Debit,Credit") &&
-      !line.includes("Debit,Credit,Transaction Details"),
-    processLine: (line, context) => {
-      const columns = parseCSVLine(line);
-      if (columns.length < 4 || !/^\d{2}-\d{2}-\d{4}/.test(columns[0]))
-        return null;
-
-      let [date, description, debit, credit] = columns;
-      return { Date: date, Description: description, Debit: debit, Credit: credit };
-    },
-  },
-  Axis: {
-    isBank: (line) => line.includes("Debit,Credit,Transaction Details"),
-    processLine: (line, context) => {
-      const columns = parseCSVLine(line);
-      if (columns.length < 4 || !/^\d{2}-\d{2}-\d{4}/.test(columns[0]))
-        return null;
-
-      let [date, debit, credit, description] = columns;
-      debit = debit || "";
-      credit = credit || "";
-      return { Date: date, Description: description, Debit: debit, Credit: credit };
-    },
-  },
+// Helper functions
+const extractLocation = (desc) => {
+    const parts = desc.trim().split(/\s+/);
+    if (parts.length > 0) {
+        const potentialLocation = parts.pop().replace(/[^a-zA-Z]/g, "").toLowerCase();
+        return {
+            location: potentialLocation || "unknown",
+            description: parts.join(" ")
+        };
+    }
+    return { location: "unknown", description: desc };
 };
 
-// Main Processing Function
+const parseAmount = (amountStr) => {
+    const isCredit = amountStr.toLowerCase().includes("cr");
+    const numericValue = parseFloat(amountStr.replace(/[^0-9.-]/g, "")) || 0;
+    return {
+        debit: !isCredit ? numericValue : 0,
+        credit: isCredit ? numericValue : 0
+    };
+};
+
 async function processCSV(inputFile, outputFile) {
-  const results = [];
-  let currentBank = null;
-  let context = {
-    section: "Domestic",
-    cardName: "Unknown",
-    currency: "INR",
-    location: "unknown",
-  };
+    const results = [];
+    let currentSection = "Domestic";
+    let currentCardName = "Unknown";
+    let currentCurrency = "INR";
 
-  const rl = readline.createInterface({
-    input: fs.createReadStream(inputFile),
-    crlfDelay: Infinity,
-  });
+    const rl = readline.createInterface({
+        input: fs.createReadStream(inputFile),
+        crlfDelay: Infinity
+    });
 
-  for await (const line of rl) {
-    const trimmedLine = line.trim();
-    if (!trimmedLine) continue;
+    for await (const line of rl) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) continue;
 
-    // Bank Detection (only once, at the header)
-    if (!currentBank) {
-      currentBank = Object.entries(bankProcessors).find(([_, processor]) =>
-        processor.isBank(trimmedLine)
-      )?.[0];
-      continue;
+        // Section detection
+        if (trimmedLine.includes("Domestic Transactions")) {
+            currentSection = "Domestic";
+            currentCurrency = "INR";
+        } else if (trimmedLine.includes("International Transactions")) {
+            currentSection = "International";
+        }
+
+        // Cardholder name detection
+        if (/^,+[^,]+(,+)?$/.test(trimmedLine)) { // IDFC pattern
+            const parts = trimmedLine.split(",").filter(p => p.trim());
+            if (parts.length === 1) currentCardName = parts[0];
+        } else if (/^,([^,]+),/.test(trimmedLine)) { // HDFC pattern
+            const match = trimmedLine.match(/^,([^,]+),/);
+            currentCardName = match[1].trim();
+        } else if (trimmedLine.startsWith(",,")) { // ICICI pattern
+            const parts = trimmedLine.split(",").map(p => p.trim());
+            if (parts[2]) currentCardName = parts[2];
+        } else { // AXIS pattern
+            const parts = trimmedLine.split(",").map(p => p.trim());
+            if (parts.length >= 3 && parts[0] === "" && parts[1] === "" && parts[2]) {
+                currentCardName = parts[2];
+            }
+        }
+
+        // Transaction processing
+        let transactionData = null;
+        const fields = trimmedLine.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(f => f.trim().replace(/^"(.*)"$/, "$1"));
+        
+        // Try IDFC format
+        if (/^"([^"]+)",(\d{2}-\d{2}-\d{4}),([\d\sCr]+)/.test(trimmedLine)) {
+            const [_, desc, date, amt] = trimmedLine.match(/"([^"]+)",(\d{2}-\d{2}-\d{4}),([\d\sCr]+)/);
+            const { debit, credit } = parseAmount(amt);
+            const parsedDate = moment(date, "MM-DD-YYYY").format("DD-MM-YYYY");
+            transactionData = { date: parsedDate, desc, debit, credit };
+        }
+        // Try HDFC/AXIS/ICICI format
+        else if (fields.length >= 4 && /^\d{2}-\d{2}-\d{4}/.test(fields[0])) {
+            const [date, desc, debitStr, creditStr] = fields;
+            const debit = parseFloat(debitStr) || 0;
+            const credit = parseFloat(creditStr) || 0;
+            transactionData = { date, desc, debit, credit };
+        }
+        // Try AXIS debit/credit format
+        else if (fields.length >= 4 && !isNaN(fields[1]) && !isNaN(fields[2])) {
+            const [date, debit, credit, desc] = fields;
+            transactionData = { date, desc, debit: parseFloat(debit), credit: parseFloat(credit) };
+        }
+
+        if (transactionData) {
+            let { date, desc, debit, credit } = transactionData;
+            let currency = currentCurrency;
+            let location = "unknown";
+
+            // International transaction handling
+            if (currentSection === "International") {
+                const descParts = desc.split(/\s+/);
+                if (descParts.length > 1) {
+                    currency = descParts.pop() || "USD";
+                    const locPart = descParts.pop() || "unknown";
+                    location = locPart.replace(/[^a-zA-Z]/g, "").toLowerCase();
+                    desc = descParts.join(" ");
+                }
+            } else {
+                const extraction = extractLocation(desc);
+                location = extraction.location;
+                desc = extraction.description;
+            }
+
+            results.push({
+                Date: date,
+                "Transaction Description": desc,
+                Debit: debit.toFixed(2),
+                Credit: credit.toFixed(2),
+                Currency: currency,
+                CardName: currentCardName,
+                Transaction: currentSection,
+                Location: location
+            });
+        }
     }
 
-    // Section Detection
-    if (trimmedLine.includes("Domestic Transactions")) {
-      context.section = "Domestic";
-      context.currency = "INR";
-    } else if (
-      trimmedLine.includes("International Transactions") ||
-      trimmedLine.includes("International Transaction")
-    ) {
-      context.section = "International";
-    }
-
-    // Cardholder Detection
-    if (/^,+[^,]+(,+)?$/.test(trimmedLine)) {
-      const parts = trimmedLine.split(",").filter((p) => p.trim());
-      if (parts.length === 1) context.cardName = parts[0].trim();
-      continue;
-    }
-
-    // Data Processing
-    if (isDataRow(trimmedLine, currentBank)) {
-      const processor = bankProcessors[currentBank];
-      const row = processor.processLine(trimmedLine, context);
-      if (!row) continue;
-
-      const processed = processCommon(row, context, currentBank);
-      if (processed) results.push(processed);
-    }
-  }
-
-  // Write Output
-  const header =
-    "Date,Transaction Description,Debit,Credit,Currency,CardName,Transaction,Location\n";
-  const csvContent = results
-    .map(
-      (row) =>
-        `${row.Date},${row["Transaction Description"]},${row.Debit},${row.Credit},${row.Currency},${row.CardName},${row.Transaction},${row.Location}`
-    )
-    .join("\n");
-
-  fs.writeFileSync(outputFile, header + csvContent);
-}
-
-// Common Processing Function
-function processCommon(row, context, bankType) {
-  // Date Handling
-  const dateFormats =
-    bankType === "IDFC" ? ["MM-DD-YYYY"] : ["DD-MM-YYYY", "MM-DD-YYYY", "DD-MM-YY"];
-  let parsedDate = null;
-  for (const format of dateFormats) {
-    parsedDate = moment(row.Date, format, true);
-    if (parsedDate.isValid()) break;
-  }
-  const formattedDate = parsedDate?.isValid()
-    ? parsedDate.format("DD-MM-YYYY")
-    : row.Date;
-
-  // Amount Handling
-  let debit = parseFloat(row.Debit) || 0;
-  let credit = parseFloat(row.Credit) || 0;
-
-  // Description, Currency & Location
-  let description = row.Description.trim();
-  let currency = context.currency;
-  let location = "unknown";
-
-  // Extract currency and location for international transactions
-  if (context.section === "International") {
-    const currencyMatch = description.match(/(USD|EUR|GBP|POUND)\s*$/i);
-    if (currencyMatch) {
-      currency = currencyMatch[0].toUpperCase().replace("POUND", "GBP");
-      description = description.replace(currencyMatch[0], "").trim();
-    }
-  }
-
-  // Location Extraction
-  const locationParts = description.split(/\s+/);
-  if (locationParts.length > 1) {
-    location = locationParts.pop().replace(/[^a-zA-Z]/g, "").toLowerCase();
-    description = locationParts.join(" ");
-  }
-
-  return {
-    Date: formattedDate,
-    "Transaction Description": description,
-    Debit: debit.toFixed(2),
-    Credit: credit.toFixed(2),
-    Currency: currency,
-    CardName: context.cardName,
-    Transaction: context.section,
-    Location: location,
-  };
-}
-
-// Helper Functions
-function isDataRow(line, bankType) {
-  const trimmed = line.trim();
-  if (!trimmed) return false;
-
-  switch (bankType) {
-    case "IDFC":
-      return /".+",\d{2}-\d{2}-\d{4},/.test(trimmed);
-    case "HDFC":
-    case "ICICI":
-    case "Axis":
-      return /^\d{2}-\d{2}-\d{4}/.test(trimmed);
-    default:
-      return false;
-  }
-}
-
-function parseCSVLine(line) {
-  return line
-    .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
-    .map((c) => c.trim().replace(/^"|"$/g, ""));
+    // Generate CSV
+    const header = "Date,Transaction Description,Debit,Credit,Currency,CardName,Transaction,Location\n";
+    const csvContent = results.map(row =>
+        `"${row.Date}","${row["Transaction Description"]}",${row.Debit},${row.Credit},${row.Currency},${row.CardName},${row.Transaction},${row.Location}`
+    ).join("\n");
+    
+    fs.writeFileSync(outputFile, header + csvContent);
 }
 
 export default processCSV;
